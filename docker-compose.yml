@@ -17,7 +17,14 @@ services:
                 RUN_SETUP_AT_BUILD: "true"
         image: autoar:latest
         container_name: autoar-api
-        # Keep the non-root USER defined by Dockerfile.
+        # Retain Dockerfile's non-root USER and block privilege escalation.
+        security_opt:
+            - no-new-privileges:true
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_RAW # Required for some packet-based scanning; remove if unused.
+        pids_limit: 256
         restart: unless-stopped
         env_file:
             - .env
@@ -137,7 +144,7 @@ services:
             - OLLAMA_CLOUD_MODEL=${OLLAMA_CLOUD_MODEL:-}
             - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
             - AUTOAR_AI_EXECUTE_COMMANDS=${AUTOAR_AI_EXECUTE_COMMANDS:-false}
-            - AUTOAR_AI_ALLOW_SHELL=${AUTOAR_AI_ALLOW_SHELL:-false}
+            - AUTOAR_AI_ALLOWED_DOMAINS=${AUTOAR_AI_ALLOWED_DOMAINS:-}
 
         extra_hosts:
             - "host.docker.internal:host-gateway"
