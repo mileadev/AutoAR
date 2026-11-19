@@ -81,6 +81,12 @@ func openCodeModel() string {
 
 // hasAnyAIKey reports whether any supported AI provider key is configured.
 func hasAnyAIKey() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))) {
+	case "ollama":
+		return ollamaModel("ollama") != ""
+	case "ollama-cloud":
+		return ollamaModel("ollama-cloud") != "" && strings.TrimSpace(os.Getenv("OLLAMA_API_KEY")) != ""
+	}
 	return strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 		strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "" ||
 		strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" ||
@@ -88,7 +94,7 @@ func hasAnyAIKey() bool {
 }
 
 // errNoAIKey is the standard error message when no AI key is available.
-const errNoAIKey = "no AI key set: configure OPENCODE_API_KEY (free), OPENROUTER_API_KEY, GEMINI_API_KEY, or ZHIPU_API_KEY"
+const errNoAIKey = "no AI model available: set AI_PROVIDER=ollama and OLLAMA_MODEL, or AI_PROVIDER=ollama-cloud with OLLAMA_CLOUD_MODEL and OLLAMA_API_KEY; legacy providers require their API keys"
 
 // ─── Agent Loop types ─────────────────────────────────────────────────────────
 
@@ -166,7 +172,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 	// Seed with user request
 	firstUserMsg := fmt.Sprintf("User request: %s", userRequest)
 
-	logger.GetLogger().Infof("[AGENT] Starting agent loop for: %s", userRequest)
+	logger.GetLogger().Infof("[AGENT] Starting agent loop (request length: %d)", len(userRequest))
 
 	runner := utils.NewCommandRunner(5 * time.Minute)
 
@@ -185,7 +191,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 			return nil, fmt.Errorf("AI call failed at iter %d: %w", iter+1, err)
 		}
 
-		logger.GetLogger().Infof("[AGENT] AI reply (raw): %s", aiReply)
+		logger.GetLogger().Infof("[AGENT] AI reply received (length: %d)", len(aiReply))
 
 		// Append assistant reply to history
 		history = append(history, Message{Role: "assistant", Content: aiReply})
@@ -232,7 +238,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 
 			parts := strings.Fields(action.Command)
 			var output []byte
-			if len(parts) > 0 {
+			if err = validateAIAgentCommand(action.Action, parts); err == nil {
 				output, err = runner.Run(context.Background(), parts[0], parts[1:]...)
 			}
 
@@ -443,7 +449,7 @@ Scan Results:
 	cleanJSON = strings.TrimSpace(cleanJSON)
 
 	if err := json.Unmarshal([]byte(cleanJSON), &cmdList); err != nil {
-		logger.GetLogger().Infof("[BRAIN] Error parsing JSON: %v. Response was: %s", err, cleanJSON)
+		logger.GetLogger().Infof("[BRAIN] Error parsing AI command JSON: %v", err)
 		return "", fmt.Errorf("failed to parse AI commands JSON: %w", err)
 	}
 	logger.GetLogger().Infof("[BRAIN] AI suggested %d commands", len(cmdList.Commands))
@@ -461,12 +467,12 @@ Scan Results:
 		logger.GetLogger().Infof("[BRAIN] [%d/%d] Executing: %s", i+1, len(cmdList.Commands), cmd.Command)
 		executionResults.WriteString(fmt.Sprintf("\n--- Command: %s ---\nDescription: %s\n", cmd.Command, cmd.Description))
 
-		// Parse command string into name and args
+		// Commands proposed by a model are data until explicitly authorized.
 		parts := strings.Fields(cmd.Command)
-		if len(parts) == 0 {
+		if err := validateAIAgentCommand("run_shell", parts); err != nil {
+			executionResults.WriteString(fmt.Sprintf("Blocked: %v\n", err))
 			continue
 		}
-
 		cmdStartTime := time.Now()
 		output, err := runner.Run(context.Background(), parts[0], parts[1:]...)
 		if err != nil {
@@ -503,6 +509,14 @@ Command Outputs:
 // callAI routes to whichever AI provider has a key configured.
 // Priority: OpenCode (free default) → OpenRouter → Z.ai → Gemini.
 func callAI(prompt, orKey, geminiKey string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))) {
+	case "ollama", "ollama-cloud":
+		return callOllama([]Message{{Role: "user", Content: prompt}}, strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))))
+	case "", "legacy":
+		// Preserve the existing provider priority only when explicitly using legacy providers.
+	default:
+		return "", fmt.Errorf("unsupported AI_PROVIDER; use ollama, ollama-cloud, or legacy")
+	}
 	ocKey := strings.TrimSpace(os.Getenv("OPENCODE_API_KEY"))
 	zaiKey := strings.TrimSpace(os.Getenv("ZHIPU_API_KEY"))
 
@@ -692,7 +706,18 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 		messages = append(messages, Message{Role: "assistant", Content: "Understood. I'm ready to help you with AutoAR reconnaissance and security scanning tasks."})
 	}
 	messages = append(messages, history...)
-	messages = append(messages, Message{Role: "user", Content: userMessage})
+	if userMessage != "" {
+		messages = append(messages, Message{Role: "user", Content: userMessage})
+	}
+
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))) {
+	case "ollama", "ollama-cloud":
+		return callOllama(messages, strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))))
+	case "", "legacy":
+		// Existing providers remain available without silently falling back from Ollama.
+	default:
+		return "", fmt.Errorf("unsupported AI_PROVIDER; use ollama, ollama-cloud, or legacy")
+	}
 
 	var errs []string
 	if openCodeKey != "" {
