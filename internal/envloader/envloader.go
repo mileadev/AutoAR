@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"path/filepath"
 	"strings"
 )
@@ -105,8 +106,13 @@ func findEnvFile() string {
 }
 
 // UpdateEnv updates a specific key in the .env file, or appends it if missing.
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 func UpdateEnv(key, value string) error {
-	os.Setenv(key, value)
+	if !envKeyPattern.MatchString(key) || strings.ContainsAny(value, "\n\r") {
+		return fmt.Errorf("invalid environment input")
+	}
+	if err := os.Setenv(key, value); err != nil { return err }
 	envPath := findEnvFile()
 	if envPath == "" {
 		// Create .env in current directory
@@ -115,8 +121,7 @@ func UpdateEnv(key, value string) error {
 			return err
 		}
 		envPath = filepath.Join(cwd, ".env")
-		os.WriteFile(envPath, []byte(fmt.Sprintf("%s=\"%s\"\n", key, value)), 0644)
-		return nil
+		return writePrivateEnvFile(envPath, []byte(fmt.Sprintf("%s=\"%s\"\n", key, value)))
 	}
 
 	content, err := os.ReadFile(envPath)
@@ -148,5 +153,19 @@ func UpdateEnv(key, value string) error {
 	if !strings.HasSuffix(newContent, "\n") {
 		newContent += "\n"
 	}
-	return os.WriteFile(envPath, []byte(newContent), 0644)
+	return writePrivateEnvFile(envPath, []byte(newContent))
+}
+
+func writePrivateEnvFile(path string, content []byte) error {
+	if st, err := os.Lstat(path); err == nil {
+		if !st.Mode().IsRegular() { return fmt.Errorf("refusing non-regular env file") }
+	} else if !os.IsNotExist(err) { return err }
+	f, err := os.CreateTemp(filepath.Dir(path), ".autoar-env-*")
+	if err != nil { return err }
+	defer os.Remove(f.Name())
+	if err := f.Chmod(0600); err != nil { f.Close(); return err }
+	if _, err := f.Write(content); err != nil { f.Close(); return err }
+	if err := f.Sync(); err != nil { f.Close(); return err }
+	if err := f.Close(); err != nil { return err }
+	return os.Rename(f.Name(), path)
 }

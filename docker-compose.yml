@@ -17,7 +17,7 @@ services:
                 RUN_SETUP_AT_BUILD: "true"
         image: autoar:latest
         container_name: autoar-api
-        user: root
+        # Keep the non-root USER defined by Dockerfile.
         restart: unless-stopped
         env_file:
             - .env
@@ -131,13 +131,22 @@ services:
             - OPENROUTER_MODEL=${OPENROUTER_MODEL:-}
             - GEMINI_API_KEY=${GEMINI_API_KEY:-}
             - ZHIPU_API_KEY=${ZHIPU_API_KEY:-}
+            - AI_PROVIDER=${AI_PROVIDER:-legacy}
+            - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+            - OLLAMA_MODEL=${OLLAMA_MODEL:-}
+            - OLLAMA_CLOUD_MODEL=${OLLAMA_CLOUD_MODEL:-}
+            - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+            - AUTOAR_AI_EXECUTE_COMMANDS=${AUTOAR_AI_EXECUTE_COMMANDS:-false}
+            - AUTOAR_AI_ALLOW_SHELL=${AUTOAR_AI_ALLOW_SHELL:-false}
 
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
         ports:
-            - "8000:8000" # Container listens on API_PORT (default 8000); change host side if needed: "9000:8000"
+            - "127.0.0.1:8000:8000" # Container listens on API_PORT (default 8000); change host side if needed: "9000:8000"
         volumes:
             - results-data:/app/new-results
             - ./regexes:/app/regexes:ro
-            - /var/run/docker.sock:/var/run/docker.sock
+            # No Docker socket: mounting it exposes effective host-root control.
         healthcheck:
             test:
                 ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${API_PORT:-8000}/health >/dev/null || exit 1"]
@@ -162,7 +171,7 @@ services:
         volumes:
             - autoar-pgdata:/var/lib/postgresql/data
         ports:
-            - "${POSTGRES_PORT:-5432}:5432"
+            - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U autoar -d bughunt"]
             interval: 5s

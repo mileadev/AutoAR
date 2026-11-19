@@ -80,10 +80,17 @@ func apiConfigHandler(c *gin.Context) {
 		// Secret webhook URL is never returned on this public endpoint — only
 		// whether one is configured (the raw value carries a Discord/Slack token).
 		"monitor_webhook_set": strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL")) != "",
-		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
+		"monitor_ai_available": (strings.EqualFold(os.Getenv("AI_PROVIDER"), "ollama") && os.Getenv("OLLAMA_MODEL") != "") ||
+			(strings.EqualFold(os.Getenv("AI_PROVIDER"), "ollama-cloud") && os.Getenv("OLLAMA_API_KEY") != "" && (os.Getenv("OLLAMA_CLOUD_MODEL") != "" || os.Getenv("OLLAMA_MODEL") != "")) ||
+			strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 		// AI provider status — keys are never returned, only whether each is configured.
+		"ai_provider":        utils.GetEnv("AI_PROVIDER", "legacy"),
+		"ollama_base_url":    utils.GetEnv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+		"ollama_model":       os.Getenv("OLLAMA_MODEL"),
+		"ollama_cloud_model": os.Getenv("OLLAMA_CLOUD_MODEL"),
+		"ollama_key_set":     strings.TrimSpace(os.Getenv("OLLAMA_API_KEY")) != "",
 		"opencode_key_set":   strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "",
 		"openrouter_key_set": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "",
 		"gemini_key_set":     strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
@@ -130,6 +137,11 @@ type UpdateSettingsBody struct {
 	OpenRouterKey  string `json:"openrouter_key"`
 	OpenCodeKey    string `json:"opencode_key"`
 	GeminiKey      string `json:"gemini_key"`
+	OllamaKey      string `json:"ollama_key"`
+	AIProvider     *string `json:"ai_provider,omitempty"`
+	OllamaBaseURL  *string `json:"ollama_base_url,omitempty"`
+	OllamaModel    *string `json:"ollama_model,omitempty"`
+	OllamaCloudModel *string `json:"ollama_cloud_model,omitempty"`
 	// Bug-bounty platform credentials. Empty string = "no change" (can't clear a
 	// secret with a blank submit); H1Username is a *string so it can be set/cleared
 	// explicitly. HAIncludeNative is a *bool (present = update).
@@ -189,6 +201,34 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	}
 	if body.GeminiKey != "" {
 		saveEnvSetting("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
+	}
+	if body.AIProvider != nil {
+		v := strings.ToLower(strings.TrimSpace(*body.AIProvider))
+		if v != "legacy" && v != "ollama" && v != "ollama-cloud" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ai_provider must be legacy, ollama, or ollama-cloud"})
+			return
+		}
+		saveEnvSetting("AI_PROVIDER", v)
+	}
+	if body.OllamaBaseURL != nil {
+		v := strings.TrimSpace(*body.OllamaBaseURL)
+		parsed, err := url.Parse(v)
+		if v != "" && (err != nil || parsed.Host == "" || parsed.User != nil ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			(parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ollama_base_url must be an http(s) origin"})
+			return
+		}
+		saveEnvSetting("OLLAMA_BASE_URL", v)
+	}
+	if body.OllamaModel != nil {
+		saveEnvSetting("OLLAMA_MODEL", strings.TrimSpace(*body.OllamaModel))
+	}
+	if body.OllamaCloudModel != nil {
+		saveEnvSetting("OLLAMA_CLOUD_MODEL", strings.TrimSpace(*body.OllamaCloudModel))
+	}
+	if body.OllamaKey != "" {
+		saveEnvSetting("OLLAMA_API_KEY", strings.TrimSpace(body.OllamaKey))
 	}
 
 	// Bug-bounty platform credentials. Each non-empty value is persisted to the DB
@@ -2307,7 +2347,7 @@ func openRouterChat(c *gin.Context, systemPrompt, userPrompt string) (string, er
 	if key == "" {
 		return "", fmt.Errorf("No OpenRouter API key configured. Add it in Settings → AI Configuration.")
 	}
-	log.Printf("[API] Using OpenRouter key from %s (starts with: %s, length: %d)", source, key[:min(4, len(key))], len(key))
+	log.Printf("[API] Using configured OpenRouter credential source: %s", source)
 
 	type orMsg struct {
 		Role    string `json:"role"`
@@ -2374,7 +2414,7 @@ func openRouterChat(c *gin.Context, systemPrompt, userPrompt string) (string, er
 // first. An OpenRouter key set merely via env does NOT override the OpenCode
 // default — it's just a fallback in the chain.
 func aiChat(c *gin.Context, systemPrompt, userPrompt string) (string, error) {
-	if strings.TrimSpace(c.GetHeader("X-OpenRouter-Key")) != "" {
+	if strings.TrimSpace(c.GetHeader("X-OpenRouter-Key")) != "" && (os.Getenv("AI_PROVIDER") == "" || strings.EqualFold(os.Getenv("AI_PROVIDER"), "legacy")) {
 		out, err := openRouterChat(c, systemPrompt, userPrompt)
 		if err == nil {
 			return out, nil

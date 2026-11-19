@@ -20,6 +20,10 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 ![Dashboard](image.png)
 ---
 
+## Ollama inference (local, Tailnet and direct Cloud)
+
+AutoAR supports `AI_PROVIDER=ollama` with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`, or `AI_PROVIDER=ollama-cloud` with `OLLAMA_CLOUD_MODEL` and `OLLAMA_API_KEY`. The dashboard's **AI Providers** settings can edit these values. Ollama modes do not fall back to third-party AI services. AI-generated commands are **blocked by default**; explicit sandbox-only opt-in is required. See [Ollama and security documentation](docs/OLLAMA_SECURITY.md).
+
 ##  Feature Highlights
 
 
