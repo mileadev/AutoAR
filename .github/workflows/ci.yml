@@ -8,6 +8,8 @@ on:
 
 jobs:
   test:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,6 +45,8 @@ jobs:
           echo "Build successful!"
 
   security:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -50,10 +54,16 @@ jobs:
         with:
           submodules: false
 
-      - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          args: '-no-fail -fmt json -out gosec-report.json ./...'
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run Gosec (report and fail on high confidence issues)
+        run: |
+          go run github.com/securego/gosec/v2/cmd/gosec@v2.22.10 \
+            -severity high -confidence high -fmt json -out gosec-report.json ./...
 
       - name: Upload Gosec results
         uses: actions/upload-artifact@v4

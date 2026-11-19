@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"path/filepath"
 	"strings"
 )
@@ -46,12 +47,13 @@ func LoadEnv() error {
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 
-		// Remove quotes if present
-		if len(value) >= 2 {
-			if (strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) ||
-				(strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`)) {
-				value = value[1 : len(value)-1]
-			}
+		// strconv.Unquote correctly reverses escaping by UpdateEnv.
+		if strings.HasPrefix(value, "\"") {
+			decoded, err := strconv.Unquote(value)
+			if err != nil { return fmt.Errorf("invalid quoted env value at line %d: %w", lineNum, err) }
+			value = decoded
+		} else if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+			value = value[1:len(value)-1]
 		}
 
 		// Always set from .env file (override any existing environment variables)
@@ -112,7 +114,6 @@ func UpdateEnv(key, value string) error {
 	if !envKeyPattern.MatchString(key) || strings.ContainsAny(value, "\n\r") {
 		return fmt.Errorf("invalid environment input")
 	}
-	if err := os.Setenv(key, value); err != nil { return err }
 	envPath := findEnvFile()
 	if envPath == "" {
 		// Create .env in current directory
@@ -121,7 +122,8 @@ func UpdateEnv(key, value string) error {
 			return err
 		}
 		envPath = filepath.Join(cwd, ".env")
-		return writePrivateEnvFile(envPath, []byte(fmt.Sprintf("%s=\"%s\"\n", key, value)))
+		if err := writePrivateEnvFile(envPath, []byte(fmt.Sprintf("%s=%s\n", key, strconv.Quote(value)))); err != nil { return err }
+		return os.Setenv(key, value)
 	}
 
 	content, err := os.ReadFile(envPath)
@@ -137,7 +139,7 @@ func UpdateEnv(key, value string) error {
 		}
 		parts := strings.SplitN(trimmed, "=", 2)
 		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
-			lines[i] = fmt.Sprintf("%s=\"%s\"", key, value)
+			lines[i] = fmt.Sprintf("%s=%s", key, strconv.Quote(value))
 			found = true
 			break
 		}
@@ -146,14 +148,15 @@ func UpdateEnv(key, value string) error {
 		if len(lines) > 0 && lines[len(lines)-1] != "" {
 			lines = append(lines, "")
 		}
-		lines = append(lines, fmt.Sprintf("%s=\"%s\"", key, value))
+		lines = append(lines, fmt.Sprintf("%s=%s", key, strconv.Quote(value)))
 	}
 	
 	newContent := strings.Join(lines, "\n")
 	if !strings.HasSuffix(newContent, "\n") {
 		newContent += "\n"
 	}
-	return writePrivateEnvFile(envPath, []byte(newContent))
+	if err := writePrivateEnvFile(envPath, []byte(newContent)); err != nil { return err }
+	return os.Setenv(key, value)
 }
 
 func writePrivateEnvFile(path string, content []byte) error {

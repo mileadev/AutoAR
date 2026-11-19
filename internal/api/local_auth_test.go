@@ -40,12 +40,15 @@ func TestCheckAuthBindSafety(t *testing.T) {
 			}
 		}
 	})
-	t.Run("explicit opt-out allowed on public bind", func(t *testing.T) {
+	t.Run("explicit opt-out still refuses public bind", func(t *testing.T) {
 		t.Setenv("DASHBOARD_USER", "")
 		t.Setenv("DASHBOARD_PASSWORD", "")
 		t.Setenv("AUTOAR_API_AUTH_DISABLED", "true")
-		if err := CheckAuthBindSafety("0.0.0.0"); err != nil {
-			t.Errorf("explicit opt-out should be allowed, got %v", err)
+		if err := CheckAuthBindSafety("0.0.0.0"); err == nil {
+			t.Error("public unauthenticated bind must never be allowed")
+		}
+		if err := CheckAuthBindSafety("127.0.0.1"); err != nil {
+			t.Errorf("explicit no-auth loopback development should work: %v", err)
 		}
 	})
 	t.Run("auth enabled allowed on public bind", func(t *testing.T) {
