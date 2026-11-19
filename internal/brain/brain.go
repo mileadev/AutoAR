@@ -234,7 +234,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 			if progressFn != nil {
 				progressFn(msg)
 			}
-			logger.GetLogger().Infof("[AGENT] Running: %s", action.Command)
+			logger.GetLogger().Infof("[AGENT] Proposed %s command (arguments redacted)", action.Action)
 
 			parts := strings.Fields(action.Command)
 			var output []byte
@@ -464,7 +464,7 @@ Scan Results:
 	runner := utils.NewCommandRunner(2 * time.Minute)
 
 	for i, cmd := range cmdList.Commands {
-		logger.GetLogger().Infof("[BRAIN] [%d/%d] Executing: %s", i+1, len(cmdList.Commands), cmd.Command)
+		logger.GetLogger().Infof("[BRAIN] [%d/%d] Evaluating model-proposed command", i+1, len(cmdList.Commands))
 		executionResults.WriteString(fmt.Sprintf("\n--- Command: %s ---\nDescription: %s\n", cmd.Command, cmd.Description))
 
 		// Commands proposed by a model are data until explicitly authorized.
