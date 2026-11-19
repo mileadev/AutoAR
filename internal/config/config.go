@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -121,18 +122,18 @@ func GenerateYAMLConfig(configFile string) error {
 			yamlKey = strings.TrimSuffix(yamlKey, "_password")
 			yamlKey = strings.TrimSuffix(yamlKey, "_email")
 			yamlKey = strings.TrimSuffix(yamlKey, "_key")
-			builder.WriteString(fmt.Sprintf("%s: [\"%s\"]\n", yamlKey, value))
+			builder.WriteString(fmt.Sprintf("%s: [%s]\n", yamlKey, strconv.Quote(value)))
 		}
 	}
 
 	builder.WriteString("\n# Database Configuration\n")
 	builder.WriteString(fmt.Sprintf("SAVE_TO_DB: %s\n", getBoolEnv("SAVE_TO_DB", "true")))
 	builder.WriteString(fmt.Sprintf("VERBOSE: %s\n", getBoolEnv("VERBOSE", "false")))
-	builder.WriteString(fmt.Sprintf("DB_TYPE: \"%s\"\n", getEnv("DB_TYPE", "postgresql")))
-	builder.WriteString(fmt.Sprintf("DB_HOST: \"%s\"\n", os.Getenv("DB_HOST")))
-	builder.WriteString(fmt.Sprintf("DB_NAME: \"%s\"\n", getEnv("DB_NAME", "autoar")))
+	builder.WriteString(fmt.Sprintf("DB_TYPE: %s\n", strconv.Quote(getEnv("DB_TYPE", "postgresql"))))
+	builder.WriteString(fmt.Sprintf("DB_HOST: %s\n", strconv.Quote(os.Getenv("DB_HOST"))))
+	builder.WriteString(fmt.Sprintf("DB_NAME: %s\n", strconv.Quote(getEnv("DB_NAME", "autoar"))))
 
-	return os.WriteFile(configFile, []byte(builder.String()), 0644)
+	return os.WriteFile(configFile, []byte(builder.String()), 0600)
 }
 
 func getEnv(key, defaultValue string) string {
