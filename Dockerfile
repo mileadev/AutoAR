@@ -13,12 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # NOTE: httpx and nuclei are used as Go packages (go.mod), no binary needed.
 # NOTE: interlace was removed — replaced by native Go concurrency.
 # TruffleHog is called as a CLI binary by githubscan.go, so it must be installed here.
-RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
-    cd /tmp/trufflehog && \
+# Resolved upstream revisions, not moving default branches.
+ARG TRUFFLEHOG_SHA=1d87fba93556b12cec2e836849971129e8bfa770
+RUN git clone https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
+    cd /tmp/trufflehog && git checkout --detach "${TRUFFLEHOG_SHA}" && \
+    test "$(git rev-parse HEAD)" = "${TRUFFLEHOG_SHA}" && \
     go build -o /go/bin/trufflehog . && \
-    cd /app && \
-    rm -rf /tmp/trufflehog && \
-    go install -v github.com/d3mondev/puredns/v2@latest
+    cd /app && rm -rf /tmp/trufflehog && \
+    go install -v github.com/d3mondev/puredns/v2@v2.1.1
 
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
@@ -33,14 +35,8 @@ RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
-# Fetch katana and all its sub-packages into go.sum.
-# replace directives in go.mod prevent katana from upgrading the
-# gitea/gitlab SDKs that nuclei v3.7.1 depends on.
-RUN go get github.com/projectdiscovery/katana@v1.6.1 && \
-    go get github.com/projectdiscovery/katana/pkg/utils@v1.6.1 && \
-    go get github.com/projectdiscovery/katana/pkg/output@v1.6.1 && \
-    go get github.com/projectdiscovery/katana/pkg/types@v1.6.1 && \
-    go get github.com/projectdiscovery/katana/pkg/engine/standard@v1.6.1
+# Build uses the reviewed go.mod/go.sum verbatim; no dependency graph mutation.
+RUN go mod verify
 
 # Build main autoar binary from cmd/autoar (CGO enabled for naabu/libpcap)
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar ./cmd/autoar
@@ -62,7 +58,7 @@ WORKDIR /app
 # System deps for runtime and common tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
-    postgresql-client docker.io \
+    postgresql-client \
     python3 sqlmap nmap \
     unzip zip \
     && rm -rf /var/lib/apt/lists/*
@@ -74,11 +70,15 @@ COPY web/static/data/ ./web/static/data/
 COPY autoar.sample.yaml ./
 COPY env.example ./
 
-# Clone submodules directly
-RUN cd /app && \
-    rm -rf nuclei_templates Wordlists && \
-    git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
-    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
+# Review/pin third-party scanner inputs separately from Go code.
+ARG NUCLEI_TEMPLATES_SHA=3c37e573c530774c51973a18e697d88042ade3ec
+ARG WORDLISTS_SHA=6546017dcfd538b494991a2ac748a4a38e00e9d8
+RUN git clone https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
+    git -C nuclei_templates checkout --detach "${NUCLEI_TEMPLATES_SHA}" && \
+    test "$(git -C nuclei_templates rev-parse HEAD)" = "${NUCLEI_TEMPLATES_SHA}" && \
+    git clone https://github.com/h0tak88r/Wordlists.git Wordlists && \
+    git -C Wordlists checkout --detach "${WORDLISTS_SHA}" && \
+    test "$(git -C Wordlists rev-parse HEAD)" = "${WORDLISTS_SHA}"
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
