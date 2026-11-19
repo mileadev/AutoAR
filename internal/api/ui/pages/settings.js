@@ -77,6 +77,57 @@
           <div class="settings-section-body">
             <div class="settings-item">
               <div class="settings-label">
+                <div class="settings-title">AI Provider</div>
+                <div class="settings-hint">Ollama modes never fall back to legacy cloud services. Shell execution remains disabled unless explicitly enabled in the deployment environment.</div>
+              </div>
+              <div class="settings-control">
+                <select id="ai-provider-input" class="form-control premium-input">
+                  <option value="ollama" ${cfg.ai_provider === 'ollama' ? 'selected' : ''}>Ollama local / tailnet</option>
+                  <option value="ollama-cloud" ${cfg.ai_provider === 'ollama-cloud' ? 'selected' : ''}>Ollama Cloud (direct API)</option>
+                  <option value="legacy" ${!cfg.ai_provider || cfg.ai_provider === 'legacy' ? 'selected' : ''}>Legacy providers</option>
+                </select>
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveOllamaSettings()">Save provider</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Ollama Local Endpoint</div>
+                <div class="settings-hint">Trusted host only. Use http://host.docker.internal:11434 in Docker or your Tailnet URL.</div>
+              </div>
+              <div class="settings-control">
+                <input type="url" id="ollama-base-url-input" class="form-control premium-input" value="${escValue(cfg.ollama_base_url || '')}" placeholder="http://host.docker.internal:11434">
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Ollama Local Model</div>
+                <div class="settings-hint">Name from Ollama model list. No external API key required.</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="ollama-model-input" class="form-control premium-input" value="${escValue(cfg.ollama_model || '')}" placeholder="qwen3:8b">
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Ollama Cloud Model</div>
+                <div class="settings-hint">Cloud model identifier. Sent directly to https://ollama.com/api/chat.</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="ollama-cloud-model-input" class="form-control premium-input" value="${escValue(cfg.ollama_cloud_model || '')}" placeholder="cloud-model">
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Ollama Cloud API Key</div>
+                <div class="settings-hint">Stored on server; never shown again. ${cfg.ollama_key_set ? 'Configured' : 'Not configured'}.</div>
+              </div>
+              <div class="settings-control">
+                <input type="password" autocomplete="new-password" id="ollama-key-input" class="form-control premium-input" value="" placeholder="${cfg.ollama_key_set ? 'Leave blank to keep key' : 'Ollama API key'}">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveOllamaSettings()">Save Ollama settings</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
                 <div class="settings-title">OpenCode API Key</div>
                 <div class="settings-hint">Default free provider. Get a key at <a href="https://opencode.ai/zen" target="_blank" rel="noopener">opencode.ai/zen</a>. ${cfg.opencode_key_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
               </div>
@@ -602,6 +653,32 @@
     });
   }
 
+  async function saveOllamaSettings() {
+    const provider = document.getElementById('ai-provider-input')?.value || 'legacy';
+    const baseURL = document.getElementById('ollama-base-url-input')?.value.trim() || '';
+    const model = document.getElementById('ollama-model-input')?.value.trim() || '';
+    const cloudModel = document.getElementById('ollama-cloud-model-input')?.value.trim() || '';
+    const keyInput = document.getElementById('ollama-key-input');
+    const payload = {
+      ai_provider: provider,
+      ollama_base_url: baseURL,
+      ollama_model: model,
+      ollama_cloud_model: cloudModel
+    };
+    if (keyInput?.value.trim()) payload.ollama_key = keyInput.value.trim();
+    try {
+      const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
+      const response = await fetch('/api/settings', { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error('Failed to save Ollama configuration');
+      if (keyInput) keyInput.value = '';
+      window.state.config = await window.apiFetch('/api/config');
+      renderSettings();
+      window.showToast('success', 'Saved', 'Ollama provider configuration updated.');
+    } catch (error) {
+      window.showToast('error', 'Error', error.message);
+    }
+  }
+
   async function saveOpenRouterKey() {
     const input = document.getElementById('or-key-input');
     if (!input) return;
@@ -615,8 +692,8 @@
       });
       if (!res.ok) throw new Error('Failed to update server config');
       
-      if (key) localStorage.setItem('autoar_or_key', key);
-      else localStorage.removeItem('autoar_or_key');
+      // Do not store provider credentials in browser localStorage.
+      localStorage.removeItem('autoar_or_key');
 
       window.showToast('success', 'Saved!', 'OpenRouter key updated on server.');
       input.value = '';
@@ -639,8 +716,8 @@
       });
       if (!res.ok) throw new Error('Failed to update server config');
 
-      if (key) localStorage.setItem('autoar_gemini_key', key);
-      else localStorage.removeItem('autoar_gemini_key');
+      // Do not store provider credentials in browser localStorage.
+      localStorage.removeItem('autoar_gemini_key');
 
       window.showToast('success', 'Saved!', 'Gemini key updated on server.');
       input.value = '';
@@ -959,6 +1036,7 @@
     checkAccount,
     checkAllAccounts,
     saveOpenRouterKey,
+    saveOllamaSettings,
     saveOpenCodeKey,
     saveOpenCodeModel,
     saveOpenRouterModel,
