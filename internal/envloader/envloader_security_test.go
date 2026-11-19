@@ -45,3 +45,17 @@ func TestEnvInputRejectsControlCharacters(t *testing.T) {
 	}
 	if strings.Contains(os.Getenv("VALID"), "OTHER=evil") { t.Fatal("injected environment variable") }
 }
+
+func TestQuotedEnvRoundTrip(t *testing.T) {
+	if runtime.GOOS == "windows" { t.Skip("Unix file permissions") }
+	dir := t.TempDir()
+	original, err := os.Getwd()
+	if err != nil { t.Fatal(err) }
+	if err := os.Chdir(dir); err != nil { t.Fatal(err) }
+	defer os.Chdir(original)
+	value := "abc\\\"def\\\\ghi=1"
+	if err := UpdateEnv("AUTOAR_QUOTE_TEST", value); err != nil { t.Fatal(err) }
+	if err := os.Unsetenv("AUTOAR_QUOTE_TEST"); err != nil { t.Fatal(err) }
+	if err := LoadEnv(); err != nil { t.Fatal(err) }
+	if got := os.Getenv("AUTOAR_QUOTE_TEST"); got != value { t.Fatalf("round-trip mismatch: %q", got) }
+}
