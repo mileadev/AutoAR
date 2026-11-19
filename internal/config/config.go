@@ -133,7 +133,35 @@ func GenerateYAMLConfig(configFile string) error {
 	builder.WriteString(fmt.Sprintf("DB_HOST: %s\n", strconv.Quote(os.Getenv("DB_HOST"))))
 	builder.WriteString(fmt.Sprintf("DB_NAME: %s\n", strconv.Quote(getEnv("DB_NAME", "autoar"))))
 
-	return os.WriteFile(configFile, []byte(builder.String()), 0600)
+	// Atomic replacement also fixes permissions of previously world-readable files.
+	tmp, err := os.CreateTemp(dir, ".autoar-config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.WriteString(builder.String()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if stat, err := os.Lstat(configFile); err == nil {
+		if !stat.Mode().IsRegular() {
+			return fmt.Errorf("refusing to overwrite non-regular config file")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(tmp.Name(), configFile)
 }
 
 func getEnv(key, defaultValue string) string {
