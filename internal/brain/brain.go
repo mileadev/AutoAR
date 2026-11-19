@@ -150,7 +150,7 @@ You control the AutoAR security tool via JSON actions.
 ## Rules
 1. Each turn respond ONLY with a single valid JSON object matching one of the action types.
 2. After running autoar commands, analyze the output carefully.
-3. For open ports: validate with nmap scripts (run_shell). For nuclei highs: curl to confirm. For JS secrets: curl to validate.
+3. Never use run_shell. It is prohibited. Only propose run_command actions using the permitted AutoAR CLI with in-scope -d or -s targets. The environment must explicitly permit execution and define approved domains. Otherwise summarize findings as an advisory report.
 4. Use "report" + "notify": true ONLY if you found a real, validated, high-confidence finding worth reporting.
 5. Use "report" + "notify": false for informational summaries.
 6. Use "done" when the request is fully handled.
@@ -458,52 +458,15 @@ Scan Results:
 		return "AI suggested no follow-up commands.", nil
 	}
 
-	// Step 2: Execute commands
-	logger.GetLogger().Infof("[BRAIN] Executing %d AI-suggested commands...", len(cmdList.Commands))
-	var executionResults bytes.Buffer
-	runner := utils.NewCommandRunner(2 * time.Minute)
-
+	// LLM-suggested shell commands are advisory data, not executable instructions.
+	// Manual reproduction may require privileges and explicit authorization.
+	var advisory strings.Builder
+	advisory.WriteString("### Proposed follow-up validation (manual review required)\n")
+	advisory.WriteString("AI-proposed commands have NOT been executed. Verify target scope, arguments, and impact before manual use.\n")
 	for i, cmd := range cmdList.Commands {
-		logger.GetLogger().Infof("[BRAIN] [%d/%d] Evaluating model-proposed command", i+1, len(cmdList.Commands))
-		executionResults.WriteString(fmt.Sprintf("\n--- Command: %s ---\nDescription: %s\n", cmd.Command, cmd.Description))
-
-		// Commands proposed by a model are data until explicitly authorized.
-		parts := strings.Fields(cmd.Command)
-		if err := validateAIAgentCommand("run_shell", parts); err != nil {
-			executionResults.WriteString(fmt.Sprintf("Blocked: %v\n", err))
-			continue
-		}
-		cmdStartTime := time.Now()
-		output, err := runner.Run(context.Background(), parts[0], parts[1:]...)
-		if err != nil {
-			logger.GetLogger().Infof("[BRAIN] [%d/%d] Command failed after %v: %v", i+1, len(cmdList.Commands), time.Since(cmdStartTime), err)
-			executionResults.WriteString(fmt.Sprintf("Error: %v\nOutput: %s\n", err, string(output)))
-		} else {
-			logger.GetLogger().Infof("[BRAIN] [%d/%d] Command completed in %v", i+1, len(cmdList.Commands), time.Since(cmdStartTime))
-			executionResults.WriteString(fmt.Sprintf("Output:\n%s\n", string(output)))
-		}
+		fmt.Fprintf(&advisory, "%d. %s — proposed command: %q\n", i+1, cmd.Description, cmd.Command)
 	}
-
-	// Step 3: Analyze command outputs for vulnerabilities
-	logger.GetLogger().Infof("[BRAIN] Analyzing execution outputs for vulnerabilities...")
-	analysisPrompt := fmt.Sprintf(`You are an expert security researcher.
-I have executed the following follow-up commands.
-Analyze the outputs and identify any confirmed vulnerabilities or high-interest findings.
-Be CONCISE — use bullet points. Max 15 lines total.
-Specifically look for: exposed storage, valid API keys, RCE, SSRF, or clear misconfigs.
-
-Command Outputs:
-%s`, executionResults.String())
-
-	logger.GetLogger().Infof("[BRAIN] Sending analysis prompt to AI (length: %d)...", len(analysisPrompt))
-	analysisStartTime := time.Now()
-	finalAnalysis, err := callAI(analysisPrompt, openRouterKey, geminiKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to analyze execution results: %w", err)
-	}
-	logger.GetLogger().Infof("[BRAIN] Final analysis received in %v", time.Since(analysisStartTime))
-
-	return finalAnalysis, nil
+	return advisory.String(), nil
 }
 
 // callAI routes to whichever AI provider has a key configured.
