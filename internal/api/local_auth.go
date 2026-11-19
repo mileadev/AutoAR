@@ -257,16 +257,13 @@ func CheckAuthBindSafety(host string) error {
 	if dashboardAPIAuthEnforced() {
 		return nil // auth is enforced — safe
 	}
-	// Auth is off. If the operator explicitly opted out, allow it.
-	v := strings.TrimSpace(os.Getenv("AUTOAR_API_AUTH_DISABLED"))
-	if strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes") {
-		return nil
-	}
-	// Off and not explicitly disabled → only loopback binds are allowed.
+	// An explicit no-auth setting must never make a public network bind safe.
+	// Development use is confined to loopback even if the operator opted out.
+	// Off and unauthenticated: only loopback binds are allowed.
 	h := strings.TrimSpace(host)
 	if h == "" || h == "127.0.0.1" || h == "::1" || strings.EqualFold(h, "localhost") {
 		return nil
 	}
 	return fmt.Errorf("refusing to start: API_HOST=%q exposes the dashboard on a public interface with authentication DISABLED. "+
-		"Set DASHBOARD_USER and DASHBOARD_PASSWORD to require login, or set AUTOAR_API_AUTH_DISABLED=true to explicitly run without auth", host)
+		"Set DASHBOARD_USER and DASHBOARD_PASSWORD to require login; disable auth only on a loopback bind", host)
 }
