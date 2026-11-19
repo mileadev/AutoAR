@@ -37,8 +37,8 @@ services:
             - API_PORT=8000
 
             # Dashboard auth. API_HOST=0.0.0.0 is a PUBLIC bind, so the server
-            # refuses to start unless you EITHER set DASHBOARD_USER + DASHBOARD_PASSWORD
-            # (recommended — enables login) OR AUTOAR_API_AUTH_DISABLED=true (run open).
+            # refuses to start without DASHBOARD_USER + DASHBOARD_PASSWORD.
+            # AUTOAR_API_AUTH_DISABLED=true is accepted on loopback-only binds.
             - DASHBOARD_USER=${DASHBOARD_USER:-}
             - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
             - AUTOAR_JWT_SECRET=${AUTOAR_JWT_SECRET:-}
