@@ -27,11 +27,19 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Verify Go version
         run: go version
+
+      - name: Verify module integrity
+        run: go mod verify
+
+      - name: Vet and test
+        run: |
+          CGO_ENABLED=1 go vet ./...
+          CGO_ENABLED=1 go test ./...
 
       - name: Build AutoAR binary
         run: |
@@ -40,10 +48,9 @@ jobs:
 
       - name: Test build
         run: |
-          ./autoar --help || true
+          ./autoar --help
 
       - name: Gitleaks scan
-        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         with:
           config-path: .gitleaks.toml
@@ -74,6 +81,7 @@ jobs:
           # Create archives
           tar -czf autoar-${GITHUB_REF_NAME}-linux-amd64.tar.gz -C release .
           zip -r autoar-${GITHUB_REF_NAME}-linux-amd64.zip release/
+          sha256sum autoar-${GITHUB_REF_NAME}-linux-amd64.tar.gz autoar-${GITHUB_REF_NAME}-linux-amd64.zip > SHA256SUMS
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -84,6 +92,7 @@ jobs:
           files: |
             autoar-*.tar.gz
             autoar-*.zip
+            SHA256SUMS
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -136,3 +145,5 @@ jobs:
           cache-to: type=gha,mode=max
           # Single platform: CGO + Dockerfile are tuned for amd64; add arm64 when cross-build is verified.
           platforms: linux/amd64
+          provenance: true
+          sbom: true
